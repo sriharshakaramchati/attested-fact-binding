@@ -6,7 +6,7 @@
   "description": "One browser run, one fact, one independently checked binding",
   "engines": { "node": ">=22" },
   "scripts": {
-    "setup": "playwright install chromium",
+    "setup": "node scripts/setup.mjs",
     "demo": "node src/cli.mjs demo",
     "verify": "node src/cli.mjs verify",
     "test": "node --test --test-concurrency=1 test/*.test.mjs",
