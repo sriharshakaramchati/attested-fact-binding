@@ -4,6 +4,8 @@ import { SOURCE, MODEL_HASH, validateFact, extract, inputHash, checkModel } from
 import { checkChallenge, consume } from './state.mjs';
 import { requireHardwareAttestation } from './attestation/hardware.mjs';
 
+export const LOCAL_REHEARSAL_WARNING = 'WARNING: LOCAL REHEARSAL: trusts the local supervisor and host; no Popcorn/TEE or ZK guarantee.';
+
 // Read-only cryptographic inspection is not acceptance: callers must consume the
 // challenge atomically. CLI acceptance always goes through verifyBinding/verifyChain.
 export async function inspectBinding(bundle, policy, stateDirectory, { allowLocalSoftware = false, now = Math.floor(Date.now() / 1000) } = {}) {
@@ -32,7 +34,10 @@ export async function inspectBinding(bundle, policy, stateDirectory, { allowLoca
   requireThat(canonical(extract(body)) === bundle.fact_canonical, 'fact: differs from signed source response');
   requireThat(hash('fact', fact) === receipt.fact_sha256, 'fact: commitment mismatch');
   requireThat(inputHash(fact) === receipt.input_sha256, 'input: hash mismatch');
-  return { profile: 'LOCAL_SOFTWARE', fact, run_sha256: receipt.run_sha256, input_sha256: receipt.input_sha256, model_sha256: receipt.model_sha256, prover_id: receipt.prover_id };
+  // Emit for every successful software inspection, including library callers,
+  // and carry the warning through both accepting APIs' returned results.
+  console.warn(LOCAL_REHEARSAL_WARNING);
+  return { profile: 'LOCAL_SOFTWARE', warning: LOCAL_REHEARSAL_WARNING, fact, run_sha256: receipt.run_sha256, input_sha256: receipt.input_sha256, model_sha256: receipt.model_sha256, prover_id: receipt.prover_id };
 }
 export async function verifyBinding(bundle, policy, stateDirectory, options) {
   const result = await inspectBinding(bundle, policy, stateDirectory, options);

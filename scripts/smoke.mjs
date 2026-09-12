@@ -21,10 +21,14 @@ try {
   run('npm', ['ci'], checkout);
   run('npm', ['run', 'setup'], checkout);
   const flags = ['--', '--allow-local-software', '--allow-mock-inference'];
-  run('npm', ['run', 'demo', ...flags], checkout, 0, /GENERATED LOCAL_SOFTWARE/);
-  run('npm', ['run', 'verify', ...flags], checkout, 0, /PASS LOCAL_SOFTWARE binding; inference=MOCK; zk_verified=false/);
-  run('npm', ['run', 'verify', ...flags], checkout, 1, /replay: nonce already consumed/);
-  run('npm', ['run', 'verify'], checkout, 1, /HARDWARE_ATTESTATION_UNAVAILABLE/);
-  console.log('SMOKE PASS: clean clone; real HTTPS browser capture; software binding accepted; inference MOCK; replay and hardware-only mode rejected.');
+  run('npm', ['run', 'demo', ...flags], checkout, 0, /GENERATED LOCAL REHEARSAL \(LOCAL_SOFTWARE\)/);
+  run('npm', ['run', 'verify', ...flags], checkout, 1, /policy: explicit trusted --policy path required/);
+  // This locally generated policy is explicitly selected for LOCAL REHEARSAL.
+  // A third party must instead supply an independently approved policy.
+  const policy = ['--policy', 'artifacts/policy.json'];
+  run('npm', ['run', 'verify', ...flags, ...policy], checkout, 0, /WARNING: LOCAL REHEARSAL[\s\S]*PASS LOCAL REHEARSAL \(LOCAL_SOFTWARE\) binding; inference=MOCK; zk_verified=false|PASS LOCAL REHEARSAL \(LOCAL_SOFTWARE\) binding; inference=MOCK; zk_verified=false[\s\S]*WARNING: LOCAL REHEARSAL/);
+  run('npm', ['run', 'verify', ...flags, ...policy], checkout, 1, /replay: nonce already consumed/);
+  run('npm', ['run', 'verify', '--', ...policy], checkout, 1, /HARDWARE_ATTESTATION_UNAVAILABLE/);
+  console.log('SMOKE PASS: clean clone; explicit policy; LOCAL REHEARSAL binding; inference MOCK; implicit policy, replay and hardware-only mode rejected.');
 } catch (error) { console.error(`SMOKE FAIL: ${error.message}`); process.exitCode = 1; }
 finally { rmSync(temp, { recursive: true, force: true }); }

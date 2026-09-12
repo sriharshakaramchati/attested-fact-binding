@@ -1,12 +1,12 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { issue } from '../src/state.mjs';
 import { createSupervisor } from '../src/supervisor.mjs';
-import { inspectBinding, verifyBinding } from '../src/verify.mjs';
+import { inspectBinding, verifyBinding, LOCAL_REHEARSAL_WARNING } from '../src/verify.mjs';
 import { authenticate, keypair } from '../src/crypto.mjs';
 import { canonical, parseCanonical, hash } from '../src/canonical.mjs';
 import { requestFor } from '../src/inference/contract.mjs';
@@ -25,6 +25,7 @@ before(async () => {
   challengeB = await issue(join(root, 'issued-b'));
   b = await supervisor.attestRun(challengeB);
   const inspected = await inspectBinding(a.bundle, a.policy, join(root, 'issued-a'), options);
+  assert.equal(inspected.warning, LOCAL_REHEARSAL_WARNING);
   envelope = { binding: a.bundle, inference: proveMOCK(requestFor(inspected)) }; // MOCK
   console.log(`LIVE CAPTURE: two real Chromium HTTPS runs; archived=${inspected.fact.value}; no attestation/source mocks`);
 }, { timeout: 180000 });
@@ -47,12 +48,14 @@ async function rejectCase(name, mutation, pattern, verifyOptions = options) {
 test('positive: real software-attested run and independently extracted fact; inference MOCK', async () => {
   const result = await verifyChain(envelope, a.policy, await freshState(), options);
   assert.equal(result.profile, 'LOCAL_SOFTWARE'); assert.equal(result.inference, 'MOCK');
+  assert.equal(result.warning, LOCAL_REHEARSAL_WARNING);
   assert.equal(result.zk_verified, false); assert.equal(result.run_sha256, a.bundle.receipt.claims.run_sha256);
-  console.log('PASS positive: real software binding; inference=MOCK; zk_verified=false');
+  console.log('PASS positive: LOCAL REHEARSAL software binding; inference=MOCK; zk_verified=false');
 });
 test('positive: binding alone has no mocked dependency', async () => {
   const result = await verifyBinding(a.bundle, a.policy, await freshState(), options);
   assert.equal(result.run_sha256, a.bundle.receipt.claims.run_sha256);
+  assert.equal(result.warning, LOCAL_REHEARSAL_WARNING);
 });
 test('REJECT changed fact value', () => rejectCase('fact value', e => {
   const fact = parseCanonical(e.binding.fact_canonical); fact.value = !fact.value; e.binding.fact_canonical = canonical(fact);
@@ -90,7 +93,7 @@ test('REJECT replay / duplicate submission', async () => {
 test('REJECT expired envelope with real evidence and advanced verifier clock', () => rejectCase('expired envelope', () => {}, /challenge: expired/, { ...options, now: challengeA.expires_at + 1 }));
 test('REJECT unknown challenge', async () => {
   const empty = await mkdtemp(join(root, 'empty-'));
-  await assert.rejects(verifyChain(envelope, a.policy, empty, options), /ENOENT/);
+  await assert.rejects(verifyChain(envelope, a.policy, empty, options), { message: 'challenge: unknown challenge ID' });
 });
 test('REJECT corrupted challenge state', async () => {
   const state = await freshState(); await writeFile(join(state, `${challengeA.nonce}.json`), '{}');
@@ -124,17 +127,51 @@ test('CLI accepts a submitted bundle only against separately supplied policy/sta
   await writeFile(join(submitted, 'policy.json'), canonical(hostilePolicy));
   await writeFile(join(trusted, 'policy.json'), canonical(a.policy));
   const result = await cliVerify(submitted, ['--bundle', join(submitted, 'bundle.json'), '--policy', join(trusted, 'policy.json'), '--state', state]);
-  assert.equal(result.code, 0); assert.match(result.output, /PASS LOCAL_SOFTWARE/);
+  assert.equal(result.code, 0); assert.match(result.output, /PASS LOCAL REHEARSAL \(LOCAL_SOFTWARE\)/);
+  assert.ok(result.output.includes(LOCAL_REHEARSAL_WARNING));
 });
-test('two verifier processes racing one nonce accept exactly once', async () => {
-  const directory = await mkdtemp(join(root, 'race-'));
+async function cliRunDirectory() {
+  const directory = await mkdtemp(join(root, 'cli-'));
   const state = join(directory, 'state');
-  const { mkdir } = await import('node:fs/promises'); await mkdir(state);
+  await mkdir(state);
   await writeFile(join(state, `${challengeA.nonce}.json`), canonical(challengeA));
   await writeFile(join(directory, 'bundle.json'), canonical(envelope));
   await writeFile(join(directory, 'policy.json'), canonical(a.policy));
-  const results = await Promise.all([cliVerify(directory), cliVerify(directory)]);
+  return directory;
+}
+test('CLI rejects missing --policy despite a valid co-located policy, without consuming nonce', async () => {
+  const directory = await cliRunDirectory();
+  const rejected = await cliVerify(directory);
+  assert.equal(rejected.code, 1);
+  assert.equal(rejected.output.trim(), 'FAIL: policy: explicit trusted --policy path required');
+  const accepted = await cliVerify(directory, ['--policy', join(directory, 'policy.json')]);
+  assert.equal(accepted.code, 0); assert.ok(accepted.output.includes(LOCAL_REHEARSAL_WARNING));
+  assert.match(accepted.output, /PASS LOCAL REHEARSAL/);
+  console.log('REJECT implicit policy: explicit trusted --policy path required');
+});
+test('CLI rejects a missing explicit policy with a clean message', async () => {
+  const directory = await cliRunDirectory();
+  const result = await cliVerify(directory, ['--policy', join(directory, 'missing-policy.json')]);
+  assert.equal(result.code, 1); assert.equal(result.output.trim(), 'FAIL: policy: file not found');
+});
+test('CLI rejects a missing bundle with a clean message', async () => {
+  const directory = await cliRunDirectory();
+  const result = await cliVerify(directory, ['--policy', join(directory, 'policy.json'), '--bundle', join(directory, 'missing-bundle.json')]);
+  assert.equal(result.code, 1); assert.equal(result.output.trim(), 'FAIL: bundle: file not found');
+});
+test('CLI rejects an unknown challenge ID without raw ENOENT or filesystem paths', async () => {
+  const directory = await cliRunDirectory();
+  await rm(join(directory, 'state', `${challengeA.nonce}.json`));
+  const result = await cliVerify(directory, ['--policy', join(directory, 'policy.json')]);
+  assert.equal(result.code, 1); assert.equal(result.output.trim(), 'FAIL: challenge: unknown challenge ID');
+  console.log('REJECT unknown challenge ID: clean verifier error');
+});
+test('two verifier processes racing one nonce accept exactly once', async () => {
+  const directory = await cliRunDirectory();
+  const args = ['--policy', join(directory, 'policy.json')];
+  const results = await Promise.all([cliVerify(directory, args), cliVerify(directory, args)]);
   assert.deepEqual(results.map(r => r.code).sort(), [0, 1]);
   assert.match(results.find(r => r.code === 1).output, /replay: nonce already consumed/);
-  console.log('PASS concurrent replay: exactly one PASS and one FAIL');
+  assert.ok(results.find(r => r.code === 0).output.includes(LOCAL_REHEARSAL_WARNING));
+  console.log('PASS concurrent replay: exactly one LOCAL REHEARSAL PASS and one FAIL');
 });

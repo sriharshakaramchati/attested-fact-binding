@@ -1,6 +1,7 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
-import { canonical, parseCanonical, requireThat } from './canonical.mjs';
+import { canonical, requireThat } from './canonical.mjs';
+import { readCanonicalFile } from './files.mjs';
 import { issue } from './state.mjs';
 import { attestRun } from './supervisor.mjs';
 import { inspectBinding } from './verify.mjs';
@@ -22,7 +23,7 @@ async function main() {
       paths[arg] = resolve(args[++i]);
     }
   }
-  requireThat(Object.keys(paths).length === 0 || Object.keys(paths).length === 3, 'provide --bundle, --policy and --state together');
+  if (command === 'verify') requireThat(paths['--policy'], 'policy: explicit trusted --policy path required');
   const directory = resolve(process.env.AFB_OUTPUT_DIR ?? 'artifacts');
   const state = paths['--state'] ?? join(directory, 'state');
   if (command === 'demo') {
@@ -35,13 +36,18 @@ async function main() {
     const envelope = { binding: bundle, inference: proveMOCK(requestFor(checked)) };
     await writeFile(join(directory, 'bundle.json'), canonical(envelope), { mode: 0o600 });
     await writeFile(join(directory, 'policy.json'), canonical(policy), { mode: 0o600 });
-    console.log('GENERATED LOCAL_SOFTWARE: real Chromium HTTPS capture; inference=MOCK; no hardware/ZK attestation.');
+    console.log('GENERATED LOCAL REHEARSAL (LOCAL_SOFTWARE): real Chromium HTTPS capture; inference=MOCK; no hardware/ZK attestation.');
   } else if (command === 'verify') {
-    const bundle = parseCanonical(await readFile(paths['--bundle'] ?? join(directory, 'bundle.json'), 'utf8'));
-    const policy = parseCanonical(await readFile(paths['--policy'] ?? join(directory, 'policy.json'), 'utf8'));
+    // Selecting a path is an explicit trust decision, not automatic approval of
+    // its contents. The relying party must approve this policy independently.
+    const policy = await readCanonicalFile(paths['--policy'], 'policy');
+    const bundle = await readCanonicalFile(paths['--bundle'] ?? join(directory, 'bundle.json'), 'bundle');
     const result = await verifyChain(bundle, policy, state, { allowLocalSoftware: flags.has('--allow-local-software'), allowMockInference: flags.has('--allow-mock-inference') });
-    console.log(`PASS LOCAL_SOFTWARE binding; inference=MOCK; zk_verified=false; label=${result.label}; nonce consumed.`);
+    console.log(`PASS LOCAL REHEARSAL (LOCAL_SOFTWARE) binding; inference=MOCK; zk_verified=false; label=${result.label}; nonce consumed.`);
     console.log(`FACT ${canonical(result.fact)}`);
-  } else throw new Error('usage: npm run demo|verify -- --allow-local-software --allow-mock-inference');
+  } else throw new Error('usage: npm run demo -- --allow-local-software --allow-mock-inference; npm run verify -- --policy <trusted-file> [--allow-local-software --allow-mock-inference]');
 }
-main().catch(error => { console.error(`FAIL: ${error.message}`); process.exitCode = 1; });
+main().catch(error => {
+  const reason = ['ENOENT', 'ENOTDIR'].includes(error.code) ? 'required local file or directory unavailable' : error.message;
+  console.error(`FAIL: ${reason}`); process.exitCode = 1;
+});
