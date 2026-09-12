@@ -91,6 +91,18 @@ test('REJECT replay / duplicate submission', async () => {
   console.log('REJECT replay: nonce already consumed');
 });
 test('REJECT expired envelope with real evidence and advanced verifier clock', () => rejectCase('expired envelope', () => {}, /challenge: expired/, { ...options, now: challengeA.expires_at + 1 }));
+test('REJECT future-dated challenge outside the 30-second skew allowance', () => rejectCase('future-dated challenge', () => {}, /challenge: issued in future/, { ...options, now: challengeA.issued_at - 31 }));
+test('REJECT tampered signed validity window', () => rejectCase('signed validity window', e => {
+  e.binding.attestation.claims.expires_at += 600;
+}, /run-certificate: invalid signature/));
+test('REJECT tampered stored validity window', async () => {
+  const state = await freshState();
+  const path = join(state, `${challengeA.nonce}.json`);
+  const changed = parseCanonical(await readFile(path, 'utf8')); changed.expires_at += 600;
+  await writeFile(path, canonical(changed));
+  await assert.rejects(verifyChain(envelope, a.policy, state, options), { message: 'challenge: expires_at mismatch' });
+  console.log('REJECT stored validity window: challenge: expires_at mismatch');
+});
 test('REJECT unknown challenge', async () => {
   const empty = await mkdtemp(join(root, 'empty-'));
   await assert.rejects(verifyChain(envelope, a.policy, empty, options), { message: 'challenge: unknown challenge ID' });

@@ -14,7 +14,9 @@ function run(command, args, cwd, expected = 0, pattern) {
   if (result.stderr) process.stderr.write(result.stderr);
   if (result.error) throw result.error;
   if (result.status !== expected) throw new Error(`expected exit ${expected}, got ${result.status}`);
-  if (pattern && !pattern.test(result.stdout + result.stderr)) throw new Error(`missing expected output ${pattern}`);
+  for (const expectedPattern of [pattern].flat().filter(Boolean)) {
+    if (!expectedPattern.test(result.stdout + result.stderr)) throw new Error(`missing expected output ${expectedPattern}`);
+  }
 }
 try {
   run('git', ['clone', '--no-local', '--quiet', process.cwd(), checkout], process.cwd());
@@ -26,7 +28,7 @@ try {
   // This locally generated policy is explicitly selected for LOCAL REHEARSAL.
   // A third party must instead supply an independently approved policy.
   const policy = ['--policy', 'artifacts/policy.json'];
-  run('npm', ['run', 'verify', ...flags, ...policy], checkout, 0, /WARNING: LOCAL REHEARSAL[\s\S]*PASS LOCAL REHEARSAL \(LOCAL_SOFTWARE\) binding; inference=MOCK; zk_verified=false|PASS LOCAL REHEARSAL \(LOCAL_SOFTWARE\) binding; inference=MOCK; zk_verified=false[\s\S]*WARNING: LOCAL REHEARSAL/);
+  run('npm', ['run', 'verify', ...flags, ...policy], checkout, 0, [/WARNING: LOCAL REHEARSAL/, /PASS LOCAL REHEARSAL \(LOCAL_SOFTWARE\) binding; inference=MOCK; zk_verified=false/]);
   run('npm', ['run', 'verify', ...flags, ...policy], checkout, 1, /replay: nonce already consumed/);
   run('npm', ['run', 'verify', '--', ...policy], checkout, 1, /HARDWARE_ATTESTATION_UNAVAILABLE/);
   console.log('SMOKE PASS: clean clone; explicit policy; LOCAL REHEARSAL binding; inference MOCK; implicit policy, replay and hardware-only mode rejected.');
