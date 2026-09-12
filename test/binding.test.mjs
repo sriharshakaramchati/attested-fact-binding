@@ -108,13 +108,24 @@ test('failed verification does not consume valid challenge', async () => {
   await assert.rejects(verifyChain(altered, a.policy, state, options), /MOCK: output/);
   await verifyChain(envelope, a.policy, state, options);
 });
-function cliVerify(directory) {
+function cliVerify(directory, extraArgs = []) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['src/cli.mjs', 'verify', '--allow-local-software', '--allow-mock-inference'], { env: { ...process.env, AFB_OUTPUT_DIR: directory } });
+    const child = spawn(process.execPath, ['src/cli.mjs', 'verify', '--allow-local-software', '--allow-mock-inference', ...extraArgs], { env: { ...process.env, AFB_OUTPUT_DIR: directory } });
     let output = ''; child.stdout.on('data', d => { output += d; }); child.stderr.on('data', d => { output += d; });
     child.on('error', reject); child.on('close', code => resolve({ code, output }));
   });
 }
+test('CLI accepts a submitted bundle only against separately supplied policy/state', async () => {
+  const submitted = await mkdtemp(join(root, 'submitted-'));
+  const trusted = await mkdtemp(join(root, 'trusted-'));
+  const state = await freshState();
+  await writeFile(join(submitted, 'bundle.json'), canonical(envelope));
+  const hostilePolicy = { ...a.policy, authority_public_key: keypair().publicKey };
+  await writeFile(join(submitted, 'policy.json'), canonical(hostilePolicy));
+  await writeFile(join(trusted, 'policy.json'), canonical(a.policy));
+  const result = await cliVerify(submitted, ['--bundle', join(submitted, 'bundle.json'), '--policy', join(trusted, 'policy.json'), '--state', state]);
+  assert.equal(result.code, 0); assert.match(result.output, /PASS LOCAL_SOFTWARE/);
+});
 test('two verifier processes racing one nonce accept exactly once', async () => {
   const directory = await mkdtemp(join(root, 'race-'));
   const state = join(directory, 'state');
