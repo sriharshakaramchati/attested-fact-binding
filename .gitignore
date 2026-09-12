@@ -1,0 +1,8 @@
+node_modules/
+artifacts/
+.env
+.env.*
+*.pem
+*.key
+coverage/
+.DS_Store

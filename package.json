@@ -1,0 +1,16 @@
+{
+  "name": "attested-fact-binding",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "One browser run, one fact, one independently checked binding",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "setup": "playwright install chromium",
+    "demo": "node src/cli.mjs demo",
+    "verify": "node src/cli.mjs verify",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": { "playwright": "1.58.2" }
+}
