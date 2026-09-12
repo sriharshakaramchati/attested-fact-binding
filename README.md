@@ -2,7 +2,7 @@
 
 One real Chromium run → one real HTTPS response → one signed fact binding → one independent verifier.
 
-**Working scope: LOCAL_SOFTWARE attestation. Inference: explicitly MOCK. No Popcorn/TEE or EZKL proof is claimed.** The supervisor is a real signing authority that performs the browser capture, not a simulated Popcorn service. A verifier must trust that supervisor and its host. An untrusted host can fabricate software attestations. Hardware attestation remains an explicit, failing external boundary.
+**WARNING: LOCAL REHEARSAL. Software attestation trusts the local supervisor and host; it provides no Popcorn/TEE or ZK guarantee. Inference is explicitly MOCK.** The supervisor performs a real browser capture and signs its observation. An untrusted host can fabricate software attestations. Hardware attestation remains an explicit, failing external boundary.
 
 The fact is GitHub's `archived` boolean for `zkonduit/ezkl`. HTTPS authenticates the public source; this is not a logged-in account proof. Tests and the demo retrieve it live, with no fixture server or canned response. Source failures fail the run.
 
@@ -18,19 +18,24 @@ npm ci
 npx playwright install-deps chromium
 npm run setup
 npm run demo -- --allow-local-software --allow-mock-inference
-npm run verify -- --allow-local-software --allow-mock-inference
+npm run verify -- --policy artifacts/policy.json --allow-local-software --allow-mock-inference
 ```
 
-The generator writes public evidence and local state into ignored `artifacts/`. The verifier runs in a separate process. Success is deliberately qualified:
+The generator writes public evidence and local state into ignored `artifacts/`. Selecting its generated policy is only a **LOCAL REHEARSAL** trust bootstrap. For third-party verification, select a policy whose authority and workload you independently approved. Verification always requires an explicit `--policy`; it never silently accepts a co-located policy, even if one exists. The flag chooses a file, not whether its contents deserve trust.
+
+The verifier runs in a separate process. Successful software inspection emits a warning to stderr; acceptance is deliberately qualified:
 
 ```text
-PASS LOCAL_SOFTWARE binding; inference=MOCK; zk_verified=false; label=active; nonce consumed.
+WARNING: LOCAL REHEARSAL: trusts the local supervisor and host; no Popcorn/TEE or ZK guarantee.
+PASS LOCAL REHEARSAL (LOCAL_SOFTWARE) binding; inference=MOCK; zk_verified=false; label=active; nonce consumed.
 FACT {"field":"repository.archived","schema":"afb.fact/1","source":"https://api.github.com/repos/zkonduit/ezkl","value":false}
 ```
 
-The label follows the live fact. Verify again: exit 1, `FAIL: replay: nonce already consumed`. Repeat `demo` to get a new nonce/run. Do not delete nonce markers to reuse old evidence. `npm run verify` without software opt-in fails with `HARDWARE_ATTESTATION_UNAVAILABLE`; software mode without inference opt-in rejects the MOCK.
+The label follows the live fact. Verify again with the explicit policy: exit 1, `FAIL: replay: nonce already consumed`. Repeat `demo` to get a new nonce/run. Do not delete nonce markers to reuse old evidence. `npm run verify` fails with `FAIL: policy: explicit trusted --policy path required`. `npm run verify -- --policy artifacts/policy.json` without software opt-in fails with `HARDWARE_ATTESTATION_UNAVAILABLE`; software mode without inference opt-in rejects the MOCK.
 
-`AFB_OUTPUT_DIR` optionally changes the evidence/state directory. `PLAYWRIGHT_BROWSERS_PATH` optionally changes the browser download location; otherwise setup uses ignored `node_modules`. The development macOS sandbox denied Chromium's Mach process registration; no replacement capture was used. Run on a normal Chromium-capable host or the documented Linux setup. Python is not required for this Node demo.
+Missing files return clean rejections such as `FAIL: policy: file not found`, `FAIL: bundle: file not found`, or `FAIL: challenge: unknown challenge ID`. These messages do not expose raw ENOENT errors or filesystem paths. Replay-state persistence failure also fails closed.
+
+`AFB_OUTPUT_DIR` optionally changes the default bundle/state directory and demo output location; it never selects a policy for verification. `PLAYWRIGHT_BROWSERS_PATH` optionally changes the browser download location; otherwise setup uses ignored `node_modules`. An earlier development sandbox denied Chromium startup; after local process permissions became available, the full local suite also passed with real captures. Clean Linux CI remains the reproducibility check. Python is not required for this Node demo.
 
 ## Tests and clean-clone smoke
 
@@ -39,11 +44,11 @@ npm test
 npm run smoke
 ```
 
-`npm test` is the single command for all positive and negative tests. It captures two live Chromium runs under one software authority. Cases cover fact value/schema/field, cross-run substitution, workload/prover/model identities, source and response changes, nonce tampering/replay, expiration, malformed canonical JSON, corrupted state, changed MOCK output/instances, and attempts to label software/MOCK evidence as hardware/EZKL. A two-process race must accept exactly once. Separate state per mutation prevents replay failures from hiding a different broken check.
+`npm test` is the single command for all positive and negative tests. It captures two live Chromium runs under one software authority. Cases cover fact value/schema/field, cross-run substitution, workload/prover/model identities, source and response changes, nonce tampering/replay, expiration, future-dated challenges, tampered signed/stored validity windows, unknown challenge IDs, malformed canonical JSON, corrupted state, changed MOCK output/instances, and attempts to label software/MOCK evidence as hardware/EZKL. State tests reject internally matching but invalid durations and exercise the exact 30-second skew boundary. CLI tests reject implicit policies and require clean missing-file errors and LOCAL REHEARSAL warnings. A two-process race must accept exactly once. Separate state per mutation prevents replay failures from hiding a different broken check.
 
-`npm run smoke` clones committed HEAD into a fresh temporary directory, runs `npm ci` and `npm run setup`, executes the live demo and verifier, and requires replay and strict hardware-mode rejection. It copies no receipt or signing key. Commit edits before running it; it deliberately tests committed code. Linux system libraries must already be installed. CI runs both commands, without artifact uploads or caches.
+`npm run smoke` clones committed HEAD into a fresh temporary directory, runs `npm ci` and `npm run setup`, executes the live demo, requires rejection when `--policy` is omitted, then verifies with an explicitly selected rehearsal policy. It requires the LOCAL REHEARSAL warning, replay rejection and strict hardware-mode rejection. It copies no receipt or signing key. Commit edits before running it; it deliberately tests committed code. Linux system libraries must already be installed. CI runs both commands, without artifact uploads or caches.
 
-Evidence at `8cc6c43`: [48 tests passed, zero failures/skips, clean-clone smoke passed](https://github.com/sriharshakaramchati/attested-fact-binding/actions/runs/34687155811). [EVIDENCE.md](EVIDENCE.md) records actual output and validation details.
+[EVIDENCE.md](EVIDENCE.md) records the current hardening run, exact commands and output, followed by clearly labeled historical implementation evidence.
 
 ## Trust chain and verification
 
@@ -52,13 +57,13 @@ Evidence at `8cc6c43`: [48 tests passed, zero failures/skips, clean-clone smoke 
 3. An Ed25519 authority signature certifies the run key, workload hash, nonce, run ID, audience and validity. The run key signs a receipt binding that certificate's hash, raw response commitment, canonical fact commitment, input hash, model and prover identities.
 4. The verifier checks signatures against a separately trusted policy, checks every binding, independently extracts the fact from the committed response, and compares the nonce/run with issued state.
 5. The isolated inference MOCK receives the exact input, model and run identities. Its explicitly tagged result is checked by recomputation; it contains no ZK proof.
-6. Only after all checks pass does an atomic exclusive file creation consume the nonce. Then the verifier prints its qualified PASS and verified fact.
+6. Only after all checks pass does an atomic exclusive file creation consume the nonce. Then the verifier prints its LOCAL REHEARSAL PASS and verified fact. Successful software inspection also emits the warning and returns it in the `warning` field through `inspectBinding`, `verifyBinding` and `verifyChain`; a warning alone is not acceptance.
 
 Cross-run certificate substitution fails because the receipt key and run hash no longer match. A whole other bundle requires that other run's separately issued challenge. Fact verification trusts the supervisor's captured bytes, never the caller's extraction result.
 
 **Trust bootstrap:** `demo` creates a short-lived authority and writes its public policy separately for a same-host rehearsal. A third party must approve its key and workload hash through an independent trusted channel. Adopting an attacker-supplied `policy.json` destroys the guarantee. The CLI assumes policy/state belong to the relying party. This software profile does not protect against its supervisor or host.
 
-For a submitted bundle, explicitly separate its path from verifier-owned policy/state (all three path flags are required together):
+For a submitted bundle, explicitly separate its path from verifier-owned policy/state. `--policy` is always required; `--bundle` and `--state` can independently override the local defaults:
 
 ```sh
 npm run verify -- --allow-local-software --allow-mock-inference \

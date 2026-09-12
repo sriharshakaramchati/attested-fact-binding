@@ -1,5 +1,7 @@
 # Threat model
 
+**WARNING: LOCAL REHEARSAL. Accepted software evidence trusts the supervisor and host; no Popcorn/TEE or ZK guarantee is established.** The CLI requires explicit `--policy` selection, and successful software inspection emits this warning and carries it in API results. Neither a flag nor a co-located file independently establishes that a policy is trustworthy.
+
 ## Established by LOCAL_SOFTWARE verification
 
 Given a relying party's approved authority key, workload hash, ONNX identity, intact issued-challenge state and clock, acceptance establishes that:
@@ -17,7 +19,7 @@ The supervisor process, Node/Playwright and dependencies, OS/process isolation, 
 
 Chromium, TLS, local CA policy and GitHub's response are trusted. The receipt commits to Chromium's decoded response body, not a self-verifying TLS transcript. A remote verifier checks the supervisor's signed HTTPS observation; it does not independently validate the TLS transcript.
 
-The verifier's code, source policy, independently approved authority key/workload, pinned model hash, clock and state must be protected. An attacker-supplied policy cannot establish trust. The one-command local generator writes a policy only as an explicit same-host trust bootstrap.
+The verifier's code, source policy, independently approved authority key/workload, pinned model hash, clock and state must be protected. An attacker-supplied policy cannot establish trust. The local generator writes a policy only for same-host LOCAL REHEARSAL; the verifier never automatically selects it. A third party must explicitly select its own independently approved policy.
 
 SHA-256 collision resistance and Ed25519 unforgeability are assumed. The measurement covers source files, lockfile, ONNX identity, Node executable/version and Chromium executable. It is not hardware measurement or a full container/memory digest. Shared libraries/frameworks, browser resources, installed dependencies beyond lockfile integrity, kernel, environment and CA store remain host assumptions. There is no defense against replacement between measurement and use, injected libraries, host memory access, compromised browser or dishonest authority.
 
@@ -31,7 +33,7 @@ Canonical encodings are strictly checked. Source JSON rejects duplicate fields, 
 
 ## Replay and failure
 
-Nonce and run ID are independent 256-bit random values. Both must match verifier-issued state. Validity is exactly 600 seconds; verifier clock may be at most 30 seconds behind issue time. Receipt time must lie within the issued interval and at most 30 seconds ahead of verification. Time checks supplement, never replace, the challenge.
+Nonce and run ID are independent 256-bit random values. Both must match verifier-issued state. Validity is exactly 600 seconds; verifier clock may be at most 30 seconds behind issue time. Receipt time must lie within the issued interval and at most 30 seconds ahead of verification. Tests reject 31-second future challenges, altered signed/stored windows, and matching but invalid window lengths. Time checks supplement, never replace, the challenge. Unknown challenge IDs return a clean rejection without OS error strings or filesystem paths.
 
 After all binding/inference checks, the verifier exclusively creates `<nonce>.used`, flushes it and the directory, then prints PASS. A concurrent loser fails. Crashes may burn a challenge without printing PASS. Validation failure does not consume a good challenge. Unknown or corrupt state fails.
 

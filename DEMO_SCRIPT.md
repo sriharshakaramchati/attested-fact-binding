@@ -8,17 +8,17 @@ Preinstall with `npm ci`, Linux browser libraries if needed, and `npm run setup`
 
 ```sh
 npm run demo -- --allow-local-software --allow-mock-inference
-npm run verify -- --allow-local-software --allow-mock-inference
+npm run verify -- --policy artifacts/policy.json --allow-local-software --allow-mock-inference
 ```
 
 “A separate verifier checks the run certificate and receipt, then extracts the fact again from the signed response. It checks input hash, model identity and fresh nonce. The caller's extractor is not trusted.”
 
-**35–50 seconds:** “The result explicitly says LOCAL_SOFTWARE, inference MOCK, and zk_verified=false. The tiny ONNX artifact is real. The future inference partner is the only mock; it returns no fake EZKL proof.”
+**35–50 seconds:** “The LOCAL REHEARSAL warning makes the trust limit explicit: this generated policy trusts our local supervisor and host. Verification requires us to select that policy explicitly. The result says inference MOCK and zk_verified=false. The future inference partner is the only mock; it returns no fake EZKL proof.”
 
 **50–65 seconds:**
 
 ```sh
-npm run verify -- --allow-local-software --allow-mock-inference
+npm run verify -- --policy artifacts/policy.json --allow-local-software --allow-mock-inference
 ```
 
 “Reusing this nonce now fails. A timestamp alone would not prevent that.”

@@ -2,6 +2,8 @@
 
 This document describes the executable LOCAL_SOFTWARE wire contract. It does not redefine Popcorn's native proof as a local signature. [DEPENDENCIES.md](DEPENDENCIES.md) describes the separate unavailable hardware interface.
 
+**WARNING: LOCAL REHEARSAL. Software acceptance trusts the local supervisor and host, with no Popcorn/TEE or ZK guarantee.** Every CLI verification requires `--policy <trusted-file>`; no co-located default is selected. Bundle/state paths may independently override defaults. Explicit selection does not establish trust in policy contents.
+
 ## Bytes and commitments
 
 All protocol JSON is canonical: printable ASCII strings, booleans, null, safe integer numbers (no negative zero), arrays, and plain objects. Object keys sort by ascending JavaScript string comparison; because keys are ASCII this is byte order. Encode using `JSON.stringify` string escaping, commas/colons without spaces, and UTF-8 without BOM or trailing newline. Reject unknown fields on the specified schemas. `parseCanonical` requires exact round-trip byte equality. Source JSON has separate strict duplicate-key parsing and fatal UTF-8 decoding, and is not reserialized before hashing.
@@ -85,9 +87,9 @@ Measurement is a hash-preimage description, not a dynamic policy: the verifier r
 4. Verify the receipt signature using the certified run key. Match certificate hash, run ID, nonce, workload, signer identity, model identity, signed timestamp and source metadata.
 5. Hash response bytes and compare the signed commitment. Independently parse/extract the fact, compare exact canonical fact bytes, check fact commitment, and recompute canonical input/hash.
 6. Validate inference request/response bindings. Accept MOCK only with explicit opt-in and exact deterministic recomputation; never turn it into EZKL verification. Real mode remains unavailable.
-7. Atomically create/flush the consumed-nonce marker; only then report PASS. Error or unavailable boundary returns FAIL/nonzero.
+7. Atomically create/flush the consumed-nonce marker; only then report `PASS LOCAL REHEARSAL (LOCAL_SOFTWARE)`. Error or unavailable boundary returns FAIL/nonzero. Missing files and unknown challenge IDs use clean rejection messages, never raw ENOENT paths.
 
-`inspectBinding` is read-only inspection, **not acceptance**; it does not consume a nonce. `verifyBinding` and `verifyChain` are accepting APIs and always consume. The CLI uses `verifyChain`. Time window is exactly 600 seconds, with at most 30 seconds future skew as specified in [THREAT_MODEL.md](../THREAT_MODEL.md). Local state is authoritative; a proof's timestamp alone grants nothing.
+`inspectBinding` is read-only inspection, **not acceptance**; it does not consume a nonce. Successful software inspection emits the LOCAL REHEARSAL warning to stderr and returns it in a `warning` field, preserved by `verifyBinding` and `verifyChain`. Those accepting APIs always consume; the CLI uses `verifyChain`. A warning does not mean that later inference/replay checks succeeded. Time window is exactly 600 seconds, with at most 30 seconds future skew as specified in [THREAT_MODEL.md](../THREAT_MODEL.md). Invalid duration, future issue time and expiry have separate rejection reasons. Local state is authoritative; a proof's timestamp alone grants nothing.
 
 ## Inference partner interface
 
