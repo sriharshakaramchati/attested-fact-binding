@@ -5,7 +5,7 @@ import { chromium } from './browser.mjs';
 import { capture } from './capture.mjs';
 import { canonical, hash, sha256 } from './canonical.mjs';
 import { keypair, signed } from './crypto.mjs';
-import { SOURCE, MODEL_HASH, extract, inputHash } from './policy.mjs';
+import { SOURCE, MODEL_HASH, extract, inputHash, checkModel } from './policy.mjs';
 
 export async function measure() {
   const root = fileURLToPath(new URL('../', import.meta.url));
@@ -18,6 +18,8 @@ export async function measure() {
     }
   }
   await walk('src');
+  checkModel();
+  files['model/classifier.onnx'] = MODEL_HASH;
   files['package-lock.json'] = sha256(await readFile(join(root, 'package-lock.json')));
   const executablePath = chromium.executablePath();
   const measurement = { version: 1, files, node_version: process.version, node_sha256: sha256(await readFile(process.execPath)), chromium_sha256: sha256(await readFile(executablePath)) };
@@ -28,7 +30,12 @@ export async function measure() {
 // simulation. Neither authority nor per-run private key leaves this process.
 // A malicious supervisor/host can lie; consumers must approve the authority.
 export async function attestRun(challenge) {
-  const authority = keypair(); const run = keypair();
+  return createSupervisor().attestRun(challenge);
+}
+export function createSupervisor() {
+  const authority = keypair();
+  return { async attestRun(challenge) {
+  const run = keypair();
   const { executablePath, measurement, workloadHash } = await measure();
   const observed = await capture(executablePath);
   const fact = extract(observed.body);
@@ -47,4 +54,5 @@ export async function attestRun(challenge) {
     policy: { version: 1, profile: 'LOCAL_SOFTWARE', authority_public_key: authority.publicKey, workload_sha256: workloadHash, model_sha256: MODEL_HASH },
     bundle: { version: 1, measurement, attestation: signed('run-certificate', claims, authority.privateKey), receipt: signed('run-receipt', receipt, run.privateKey), fact_canonical: canonical(fact), response_base64: observed.body.toString('base64') }
   };
+  } };
 }

@@ -1,6 +1,6 @@
 import { canonical, parseCanonical, exact, requireThat, decode64, hash, hex } from './canonical.mjs';
 import { authenticate } from './crypto.mjs';
-import { SOURCE, MODEL_HASH, validateFact, extract, inputHash } from './policy.mjs';
+import { SOURCE, MODEL_HASH, validateFact, extract, inputHash, checkModel } from './policy.mjs';
 import { checkChallenge, consume } from './state.mjs';
 import { requireHardwareAttestation } from './attestation/hardware.mjs';
 
@@ -16,6 +16,7 @@ export async function inspectBinding(bundle, policy, stateDirectory, { allowLoca
   requireThat(run.version === 1 && run.profile === policy.profile && run.audience === 'afb-verifier/1', 'run: profile or audience mismatch');
   requireThat(hex(policy.workload_sha256) && run.workload_sha256 === policy.workload_sha256 && hash('workload', bundle.measurement) === policy.workload_sha256, 'workload: hash mismatch');
   requireThat(policy.model_sha256 === MODEL_HASH, 'model: unapproved identity');
+  checkModel();
   const challenge = await checkChallenge(stateDirectory, run, now);
   const receipt = authenticate('run-receipt', bundle.receipt, run.run_public_key);
   exact(receipt, ['version', 'run_sha256', 'run_id', 'nonce', 'workload_sha256', 'prover_id', 'model_sha256', 'fact_sha256', 'input_sha256', 'response_sha256', 'timestamp_s', 'source', 'method', 'status', 'tls_protocol', 'browser_version'], 'receipt');

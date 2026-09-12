@@ -14,5 +14,5 @@ jobs:
       - run: npm ci
       - run: npx playwright install-deps chromium
       - run: npm run setup
-      - run: npm run demo -- --allow-local-software
-      - run: npm run verify -- --allow-local-software
+      - run: npm test
+      - run: npm run smoke
